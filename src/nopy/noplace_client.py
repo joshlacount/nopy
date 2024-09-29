@@ -42,6 +42,15 @@ class NoplaceClient:
             raise NoplaceClientException("requestId not in response JSON", resp)
         raise NoplaceClientException("Request error", resp)
 
+    async def verify_otp(self, request_id: str, otp: str) -> str:
+        resp = await self._api_post("/auth/otp/verify", json={"requestId": request_id, "otp": otp})
+        if resp.ok:
+            resp_json = await resp.json()
+            if "accessToken" in resp_json:
+                return resp_json["accessToken"]
+            raise NoplaceClientException("accessToken not in response JSON", resp)
+        raise NoplaceClientException("Request error", resp)
+
     async def _api_request(self, method: _RequestMethod, endpoint: str, **kwargs: _RequestParams) -> aiohttp.ClientResponse:
         if "headers" not in kwargs:
             kwargs["headers"] = {}
