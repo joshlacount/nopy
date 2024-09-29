@@ -26,6 +26,7 @@ class NoplaceClientException(Exception):
 class NoplaceClient:
     _API_BASE_URL = "https://api.nospace.app"
     _API_PREFIX = "/api/v1"
+    _API_KEY = "AIzaSyAm02J4FCsnFw1-jdv7kGbqGwjtXOCpRUE"
 
 
     def __init__(self, phone_number: str):
@@ -50,6 +51,24 @@ class NoplaceClient:
                 return resp_json["accessToken"]
             raise NoplaceClientException("accessToken not in response JSON", resp)
         raise NoplaceClientException("Request error", resp)
+
+    async def sign_in(self, access_token):
+        async with aiohttp.ClientSession("https://identitytoolkit.googleapis.com") as session:
+            async with session.post(
+                "/v1/accounts:signInWithCustomToken",
+                params={"key": self._API_KEY},
+                json={"token": access_token, "returnSecureToken": True}
+            ) as resp:
+                if resp.ok:
+                    resp_json = await resp.json()
+                    try:
+                        self.id_token = resp_json["idToken"]
+                        refresh_token = resp_json["refreshToken"]
+                        expires_in = resp_json["expiresIn"]
+                    except KeyError as e:
+                        raise NoplaceClientException(str(e), resp)
+                    return self.id_token, refresh_token, expires_in
+                raise NoplaceClientException("Request error", resp)
 
     async def _api_request(self, method: _RequestMethod, endpoint: str, **kwargs: _RequestParams) -> aiohttp.ClientResponse:
         if "headers" not in kwargs:
