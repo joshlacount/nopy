@@ -22,6 +22,12 @@ def parse_args(
         "-r", "--refresh-id-token", help="Use a refresh token to get a new ID token",
         metavar="refresh_token"
     )
+    parser.add_argument(
+        "-i", "--id-token", help="ID token for authorization", metavar="id_token"
+    )
+    parser.add_argument(
+        "-p", "--profile", nargs="?", help="Get a profile by profile ID.  Pass no arguments to get own profile", metavar="profile_id", const=""
+    )
 
     return parser.parse_args(args=args, namespace=namespace)
 
@@ -40,18 +46,24 @@ async def main():
             id_token, refresh_token, expires_in = await client.sign_in(access_token)
             print_tokens(id_token, refresh_token, expires_in)
         except nopy.NoplaceClientException as e:
-            print(e.msg)
-            if e.resp is not None:
-                print(await e.resp.text())
+            print(e)
     if args.refresh_id_token is not None:
         client = nopy.NoplaceClient(refresh_token=args.refresh_id_token)
         try:
             id_token, refresh_token, expires_in = await client.refresh_id_token()
             print_tokens(id_token, refresh_token, expires_in)
         except nopy.NoplaceClientException as e:
-            print(e.msg)
-            if e.resp is not None:
-                print(await e.resp.text())
+            print(e)
+    if args.profile is not None:
+        if args.id_token is None:
+            print("Missing ID token")
+            sys.exit(1)
+        client = nopy.NoplaceClient(id_token=args.id_token)
+        try:
+            print((await client.get_profile(profile_id=args.profile)).to_json())
+        except nopy.NoplaceClientException as e:
+            print(e)
+    sys.exit(0)
             
 
 

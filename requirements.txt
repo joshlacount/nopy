@@ -1,2 +1,3 @@
 aiohttp==3.10.8
+colour==0.1.5
 

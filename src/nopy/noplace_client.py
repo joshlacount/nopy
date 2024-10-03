@@ -5,6 +5,8 @@ import typing
 
 import aiohttp
 
+from . import profile
+
 
 type _RequestMethod = typing.Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 type _KeyCase = typing.Literal["CAMEL", "SNAKE"]
@@ -19,11 +21,7 @@ class _RequestParams(typing.TypedDict):
 
 
 class NoplaceClientException(Exception):
-    def __init__(self, msg: str, resp: typing.Optional[aiohttp.ClientResponse] = None):
-        super().__init__(msg)
-        self.msg = msg
-        self.resp = resp
-
+    pass
 
 class NoplaceClient:
     _API_BASE_URL = "https://api.nospace.app"
@@ -40,6 +38,7 @@ class NoplaceClient:
         self.phone_number = phone_number
         self.id_token = id_token
         self.refresh_token = refresh_token
+        self.profile_id = None
 
     async def get_tokens_from_resp(self, resp: aiohttp.ClientResponse, key_case: _KeyCase = "CAMEL") -> tuple[str, str, int]:
         match key_case:
@@ -59,25 +58,19 @@ class NoplaceClient:
             expires_in = int(resp_json[expires_in_key])
             return self.id_token, self.refresh_token, expires_in
         except KeyError as e:
-            raise NoplaceClientException(f"{e} not in response JSON", resp=resp)
+            raise NoplaceClientException(f"{e} not in response:\n{resp_json}")
 
     async def send_otp(self) -> str:
         resp = await self._api_post("/auth/otp", json={"phoneNumber": self.phone_number})
-        if resp.ok:
-            resp_json = await resp.json()
-            if "requestId" in resp_json:
-                return resp_json["requestId"]
-            raise NoplaceClientException("requestId not in response JSON", resp)
-        raise NoplaceClientException("Request error", resp)
+        if "requestId" in resp:
+            return resp["requestId"]
+        raise NoplaceClientException(f"requestId not in response:\n{resp}")
 
     async def verify_otp(self, request_id: str, otp: str) -> str:
         resp = await self._api_post("/auth/otp/verify", json={"requestId": request_id, "otp": otp})
-        if resp.ok:
-            resp_json = await resp.json()
-            if "accessToken" in resp_json:
-                return resp_json["accessToken"]
-            raise NoplaceClientException("accessToken not in response JSON", resp)
-        raise NoplaceClientException("Request error", resp)
+        if "accessToken" in resp:
+            return resp["accessToken"]
+        raise NoplaceClientException(f"accessToken not in response:\n{resp}")
 
     async def sign_in(self, access_token) -> tuple[str, str, int]:
         async with aiohttp.ClientSession("https://identitytoolkit.googleapis.com") as session:
@@ -88,7 +81,8 @@ class NoplaceClient:
             ) as resp:
                 if resp.ok:
                     return await self.get_tokens_from_resp(resp)
-                raise NoplaceClientException("Request error", resp)
+                resp_text = await resp.text()
+                raise NoplaceClientException(f"Request error:\n{resp_text}")
 
     async def refresh_id_token(self) -> tuple[str, str, int]:
         if self.refresh_token is None:
@@ -101,7 +95,16 @@ class NoplaceClient:
             ) as resp:
                 if resp.ok:
                     return await self.get_tokens_from_resp(resp, key_case="SNAKE")
-                raise NoplaceClientException("Request error", resp=resp)
+                resp_text = await resp.text()
+                raise NoplaceClientException(f"Request error:\n{resp_text}")
+
+    async def get_profile(self, profile_id=""):
+        if profile_id == "":
+            if self.profile_id is None:
+                resp = await self._api_get("/profiles")
+                self.profile_id = resp[0]["profile_id"]
+            profile_id = self.profile_id
+        return profile.Profile.from_json(await self._api_get(f"/profiles/{profile_id}"))
 
     async def _api_request(self, method: _RequestMethod, endpoint: str, **kwargs: _RequestParams) -> aiohttp.ClientResponse:
         if "headers" not in kwargs:
@@ -110,7 +113,11 @@ class NoplaceClient:
             kwargs["headers"]["Authorization"] = f"Bearer {self.id_token}"
 
         async with aiohttp.ClientSession(self._API_BASE_URL) as session:
-            return await session.request(method, f"{self._API_PREFIX}{endpoint}", **kwargs)
+            async with session.request(method, f"{self._API_PREFIX}{endpoint}", **kwargs) as resp:
+                if resp.ok:
+                    return await resp.json()
+                resp_text = await resp.text()
+                raise NoplaceClientException(f"Request error:\n{resp_text}")
 
     async def _api_get(self, endpoint: str, **kwargs: _RequestParams) -> aiohttp.ClientResponse:
         return await self._api_request("GET", endpoint, **kwargs)
